@@ -1,0 +1,28 @@
+[project]
+name = "cpsat_log_parser"
+version = "0.1.0"
+description = "This tool transforms the dense and detailed logs of CP-SAT into clear, readable formats, complemented by intuitive visualizations of key metrics."
+requires-python = ">=3.10"
+dependencies = ["pandas>=2.0.0"]
+authors= [{name= "Dominik Krupke"}]
+maintainers= [{name= "Dominik Krupke"}]
+readme='README.md'
+keywords= ["Mathematical", "Optimization", "solver", "log", "parser"]
+classifiers= [
+    "Programming Language :: Python",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.optional-dependencies]
+streamlit = ["plotly==5.18.0", "streamlit>=1.30.0"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cpsat_log_parser"]
+# This is a workaround for https://github.com/astral-sh/uv/issues/9513
+license-files = []
