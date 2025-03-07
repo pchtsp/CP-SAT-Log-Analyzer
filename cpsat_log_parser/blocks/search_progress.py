@@ -37,7 +37,6 @@ import math
 import re
 import typing
 from typing import Optional
-import plotly.graph_objects as go
 from .log_block import LogBlock
 
 
@@ -252,8 +251,7 @@ def apply_ortools911_workaround(lines: typing.List[str]) -> typing.List[str]:
 
     return lines  # Return original lines if no modifications are made
 
-
-class SearchProgressBlock(LogBlock):
+class SearchProgressBlockBase(LogBlock):
     def __init__(self, lines: typing.List[str], check: bool = True) -> None:
         lines = [line.strip() for line in lines if line.strip()]
         if not lines:
@@ -269,7 +267,7 @@ class SearchProgressBlock(LogBlock):
         return lines[0].strip().lower().startswith("Starting search".lower())
 
     def _parse_events(
-        self,
+            self,
     ) -> typing.List[typing.Union[BoundEvent, ObjEvent, ModelEvent]]:
         """
         Parse the log file into a list of BoundEvent and ObjEvent.
@@ -289,8 +287,8 @@ class SearchProgressBlock(LogBlock):
 
     def get_presolve_time(self) -> float:
         if m := re.match(
-            r"Starting [Ss]earch at (?P<time>\d+\.\d+s) with \d+ workers.",
-            self.lines[0],
+                r"Starting [Ss]earch at (?P<time>\d+\.\d+s) with \d+ workers.",
+                self.lines[0],
         ):
             return parse_time(m["time"])
         raise ValueError(f"Could not parse presolve time from '{self.lines[0]}'")
@@ -300,193 +298,209 @@ class SearchProgressBlock(LogBlock):
 
     def get_help(self) -> typing.Optional[str]:
         return """
-The search progress log is an essential element of the overall log, crucial for identifying performance bottlenecks. It clearly demonstrates the solver's progression over time and pinpoints where it faces significant challenges. It is important to discern whether the upper or lower bounds are causing issues, or if the solver initially finds a near-optimal solution but struggles to minimize a small remaining gap.
+    The search progress log is an essential element of the overall log, crucial for identifying performance bottlenecks. It clearly demonstrates the solver's progression over time and pinpoints where it faces significant challenges. It is important to discern whether the upper or lower bounds are causing issues, or if the solver initially finds a near-optimal solution but struggles to minimize a small remaining gap.
 
-The structure of the log entries is standardized as follows:
+    The structure of the log entries is standardized as follows:
 
-`EVENT NAME\t|\tTIME\t|\tBEST SOLUTION\t|\tRANGE OF THE SEARCH\t|\tCOMMENT`
+    `EVENT NAME\t|\tTIME\t|\tBEST SOLUTION\t|\tRANGE OF THE SEARCH\t|\tCOMMENT`
 
-For instance, an event marked `#2` indicates the discovery of the second solution. Here, you will observe an improvement in the `BEST SOLUTION` metric. A notation like `best:16` confirms that the solver has found a solution with a value of 16.
+    For instance, an event marked `#2` indicates the discovery of the second solution. Here, you will observe an improvement in the `BEST SOLUTION` metric. A notation like `best:16` confirms that the solver has found a solution with a value of 16.
 
-An event with `#Bound` denotes an enhancement in the bound, as seen by a reduction in the `RANGE OF THE SEARCH`. A detail such as `next:[7,14]` signifies that the solver is now focused on finding a solution valued between 7 and 14.
+    An event with `#Bound` denotes an enhancement in the bound, as seen by a reduction in the `RANGE OF THE SEARCH`. A detail such as `next:[7,14]` signifies that the solver is now focused on finding a solution valued between 7 and 14.
 
-The `COMMENT` section provides essential information about the strategies that led to these improvements.
+    The `COMMENT` section provides essential information about the strategies that led to these improvements.
 
-Events labeled `#Model` signal modifications to the model, such as fixing certain variables.
+    Events labeled `#Model` signal modifications to the model, such as fixing certain variables.
 
-To fully grasp the nuances, zooming into the plot is necessary, especially since the initial values can be quite large. A thorough examination of which sections of the process converge quickest is crucial for a comprehensive understanding.
-        """
+    To fully grasp the nuances, zooming into the plot is necessary, especially since the initial values can be quite large. A thorough examination of which sections of the process converge quickest is crucial for a comprehensive understanding.
+            """
 
-    def gap_as_plotly(self) -> typing.Optional[go.Figure]:
-        gap_events = [
-            e for e in self._parse_events() if isinstance(e, (BoundEvent, ObjEvent))
-        ]
+try:
+    import plotly.graph_objects as go
+except ImportError:
+    class SearchProgressBlock(SearchProgressBlockBase):
+        def gap_as_plotly(self):
+            raise ImportError("Please install plotly to use this feature.")
 
-        def is_valid_gap(gap):
-            return False if gap is None else bool(math.isfinite(gap))
+        def model_changes_as_plotly(self):
+            raise ImportError("Please install plotly to use this feature.")
 
-        gaps = [(e.time, e.get_gap()) for e in gap_events if is_valid_gap(e.get_gap())]
+        def as_plotly(self):
+            raise ImportError("Please install plotly to use this feature.")
 
-        fig = go.Figure()
-        if not gap_events:
-            return None
+else:
+    class SearchProgressBlock(SearchProgressBlockBase):
 
-        # add gaps
-        fig.add_trace(
-            go.Scatter(
-                x=[t for t, _ in gaps],
-                y=[gap for _, gap in gaps],
-                mode="lines+markers",
-                line=dict(color="purple"),
-                name="Relative Gap",
-                hovertext=[e.msg for e in gap_events],
+        def gap_as_plotly(self) -> typing.Optional[go.Figure]:
+            gap_events = [
+                e for e in self._parse_events() if isinstance(e, (BoundEvent, ObjEvent))
+            ]
+
+            def is_valid_gap(gap):
+                return False if gap is None else bool(math.isfinite(gap))
+
+            gaps = [(e.time, e.get_gap()) for e in gap_events if is_valid_gap(e.get_gap())]
+
+            fig = go.Figure()
+            if not gap_events:
+                return None
+
+            # add gaps
+            fig.add_trace(
+                go.Scatter(
+                    x=[t for t, _ in gaps],
+                    y=[gap for _, gap in gaps],
+                    mode="lines+markers",
+                    line=dict(color="purple"),
+                    name="Relative Gap",
+                    hovertext=[e.msg for e in gap_events],
+                )
             )
-        )
 
-        last_bound = max(gap_events, key=lambda e: e.time).bound
-        final_gaps = [calculate_gap(e.obj, last_bound) for e in gap_events]
-        fig.add_trace(
-            go.Scatter(
-                x=[e.time for e in gap_events],
-                y=final_gaps,
-                mode="lines+markers",
-                line=dict(color="orange"),
-                name="Final Gap",
-                hovertext=[e.msg for e in gap_events],
+            last_bound = max(gap_events, key=lambda e: e.time).bound
+            final_gaps = [calculate_gap(e.obj, last_bound) for e in gap_events]
+            fig.add_trace(
+                go.Scatter(
+                    x=[e.time for e in gap_events],
+                    y=final_gaps,
+                    mode="lines+markers",
+                    line=dict(color="orange"),
+                    name="Final Gap",
+                    hovertext=[e.msg for e in gap_events],
+                )
             )
-        )
 
-        # make the x-axis start at 0
-        fig.update_xaxes(range=[0, 1.01 * gaps[-1][0]])
-        max_gap = max(gap for _, gap in gaps if gap is not None)
-        # make the y-axis start at 0
-        fig.update_yaxes(range=[-1, min(300, 1.01 * max_gap)])
-        fig.update_layout(
-            title="Optimality Gap",
-            xaxis_title="Time (s)",
-            yaxis_title="Gap (%)",
-            legend_title="Legend",
-            font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
-        )
-        return fig
-
-    def model_changes_as_plotly(self) -> typing.Optional[go.Figure]:
-        """
-        Plot the model changes in percent over time.
-        """
-        model_events = [e for e in self._parse_events() if isinstance(e, ModelEvent)]
-        fig = go.Figure()
-        if not model_events:
-            return None
-        # add number of vars
-        fig.add_trace(
-            go.Scatter(
-                x=[e.time for e in model_events],
-                y=[100 * (e.vars_remaining / e.vars) for e in model_events],
-                mode="lines+markers",
-                line=dict(color="green"),
-                name="Variables",
-                hovertext=[e.msg for e in model_events],
+            # make the x-axis start at 0
+            fig.update_xaxes(range=[0, 1.01 * gaps[-1][0]])
+            max_gap = max(gap for _, gap in gaps if gap is not None)
+            # make the y-axis start at 0
+            fig.update_yaxes(range=[-1, min(300, 1.01 * max_gap)])
+            fig.update_layout(
+                title="Optimality Gap",
+                xaxis_title="Time (s)",
+                yaxis_title="Gap (%)",
+                legend_title="Legend",
+                font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
             )
-        )
-        # add number of constraints
-        fig.add_trace(
-            go.Scatter(
-                x=[e.time for e in model_events],
-                y=[100 * (e.constr_remaining / e.constr) for e in model_events],
-                mode="lines+markers",
-                line=dict(color="orange"),
-                name="Constraints",
-                hovertext=[e.msg for e in model_events],
+            return fig
+
+        def model_changes_as_plotly(self) -> typing.Optional[go.Figure]:
+            """
+            Plot the model changes in percent over time.
+            """
+            model_events = [e for e in self._parse_events() if isinstance(e, ModelEvent)]
+            fig = go.Figure()
+            if not model_events:
+                return None
+            # add number of vars
+            fig.add_trace(
+                go.Scatter(
+                    x=[e.time for e in model_events],
+                    y=[100 * (e.vars_remaining / e.vars) for e in model_events],
+                    mode="lines+markers",
+                    line=dict(color="green"),
+                    name="Variables",
+                    hovertext=[e.msg for e in model_events],
+                )
             )
-        )
-        # make the x-axis start at 0
-        fig.update_xaxes(range=[0, 1.01 * model_events[-1].time])
-        # make the y-axis range from 0 to 100
-        fig.update_yaxes(range=[0, 101])
-        fig.update_layout(
-            title="Model changes",
-            xaxis_title="Time (s)",
-            yaxis_title="Remaining (%)",
-            legend_title="Legend",
-            font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
-        )
-        return fig
+            # add number of constraints
+            fig.add_trace(
+                go.Scatter(
+                    x=[e.time for e in model_events],
+                    y=[100 * (e.constr_remaining / e.constr) for e in model_events],
+                    mode="lines+markers",
+                    line=dict(color="orange"),
+                    name="Constraints",
+                    hovertext=[e.msg for e in model_events],
+                )
+            )
+            # make the x-axis start at 0
+            fig.update_xaxes(range=[0, 1.01 * model_events[-1].time])
+            # make the y-axis range from 0 to 100
+            fig.update_yaxes(range=[0, 101])
+            fig.update_layout(
+                title="Model changes",
+                xaxis_title="Time (s)",
+                yaxis_title="Remaining (%)",
+                legend_title="Legend",
+                font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
+            )
+            return fig
 
-    def as_plotly(self) -> typing.Optional[go.Figure]:
-        """
-        Plot the progress of the solver.
-        """
-        events = self._parse_events()
-        obj_events = [e for e in events if isinstance(e, ObjEvent)]
-        bound_events = [e for e in events if isinstance(e, BoundEvent)]
-        fig = go.Figure()
-        if not obj_events and not bound_events:
-            return None
-        max_time = max(e.time for e in bound_events + obj_events)
+        def as_plotly(self) -> typing.Optional[go.Figure]:
+            """
+            Plot the progress of the solver.
+            """
+            events = self._parse_events()
+            obj_events = [e for e in events if isinstance(e, ObjEvent)]
+            bound_events = [e for e in events if isinstance(e, BoundEvent)]
+            fig = go.Figure()
+            if not obj_events and not bound_events:
+                return None
+            max_time = max(e.time for e in bound_events + obj_events)
 
-        # make sure that both bounds and objs have a value at max_time
-        if obj_events and obj_events[-1].time < max_time:
-            if bound_events[-1].obj is None:
-                # Should nearly never happen
-                obj_events.append(
-                    ObjEvent(
+            # make sure that both bounds and objs have a value at max_time
+            if obj_events and obj_events[-1].time < max_time:
+                if bound_events[-1].obj is None:
+                    # Should nearly never happen
+                    obj_events.append(
+                        ObjEvent(
+                            time=max_time,
+                            obj=obj_events[-1].obj,
+                            bound=bound_events[-1].bound,
+                            msg="",
+                        )
+                    )
+                else:
+                    obj_events.append(
+                        ObjEvent(
+                            time=max_time,
+                            obj=bound_events[-1].obj,
+                            bound=bound_events[-1].bound,
+                            msg="",
+                        )
+                    )
+            if bound_events and bound_events[-1].time < max_time:
+                bound_events.append(
+                    BoundEvent(
                         time=max_time,
                         obj=obj_events[-1].obj,
-                        bound=bound_events[-1].bound,
+                        bound=obj_events[-1].bound,
                         msg="",
                     )
                 )
-            else:
-                obj_events.append(
-                    ObjEvent(
-                        time=max_time,
-                        obj=bound_events[-1].obj,
-                        bound=bound_events[-1].bound,
-                        msg="",
-                    )
-                )
-        if bound_events and bound_events[-1].time < max_time:
-            bound_events.append(
-                BoundEvent(
-                    time=max_time,
-                    obj=obj_events[-1].obj,
-                    bound=obj_events[-1].bound,
-                    msg="",
+
+            # plot the bounds over time. Add the comment as hover text
+            fig.add_trace(
+                go.Scatter(
+                    x=[b.time for b in bound_events],
+                    y=[b.bound for b in bound_events],
+                    mode="lines+markers",
+                    line=dict(color="cyan"),
+                    name="Bound",
+                    hovertext=[b.msg for b in bound_events],
                 )
             )
 
-        # plot the bounds over time. Add the comment as hover text
-        fig.add_trace(
-            go.Scatter(
-                x=[b.time for b in bound_events],
-                y=[b.bound for b in bound_events],
-                mode="lines+markers",
-                line=dict(color="cyan"),
-                name="Bound",
-                hovertext=[b.msg for b in bound_events],
+            # plot the objective values over time. Add the comment as hover text
+            fig.add_trace(
+                go.Scatter(
+                    x=[o.time for o in obj_events],
+                    y=[o.obj for o in obj_events],
+                    mode="lines+markers",
+                    line=dict(color="red"),
+                    name="Objective",
+                    hovertext=[o.msg for o in obj_events],
+                )
             )
-        )
 
-        # plot the objective values over time. Add the comment as hover text
-        fig.add_trace(
-            go.Scatter(
-                x=[o.time for o in obj_events],
-                y=[o.obj for o in obj_events],
-                mode="lines+markers",
-                line=dict(color="red"),
-                name="Objective",
-                hovertext=[o.msg for o in obj_events],
+            # make the x-axis start at 0
+            fig.update_xaxes(range=[0, 1.01 * max_time])
+            fig.update_layout(
+                title="Search progress",
+                xaxis_title="Time (s)",
+                yaxis_title="Objective",
+                legend_title="Legend",
+                font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
             )
-        )
-
-        # make the x-axis start at 0
-        fig.update_xaxes(range=[0, 1.01 * max_time])
-        fig.update_layout(
-            title="Search progress",
-            xaxis_title="Time (s)",
-            yaxis_title="Objective",
-            legend_title="Legend",
-            font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
-        )
-        return fig
+            return fig

@@ -23,6 +23,6 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["cpsat_log_parser"]
+packages = ["cpsat_log_parser", "cpsat_log_parser.blocks"]
 # This is a workaround for https://github.com/astral-sh/uv/issues/9513
 license-files = []
