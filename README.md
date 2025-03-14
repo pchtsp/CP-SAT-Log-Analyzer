@@ -62,7 +62,7 @@ You can run this project locally by cloning it and running the following
 commands:
 
 ```bash
-pip install -r requirements.txt
+pip install .[streamlit]
 streamlit run app.py
 ```
 
