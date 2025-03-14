@@ -39,35 +39,35 @@ def input_log():
         st.markdown("Or use one of the following example logs:")
         examples = [
             {
-                "file": "example_logs/98_02.txt",
+                "file": "cpsat_log_parser/example_logs/98_02.txt",
                 "origin": "This log originates from a TSP with MTZ constraints. It is not solved to optimality.",
             },
             {
-                "file": "example_logs/98_03.txt",
+                "file": "cpsat_log_parser/example_logs/98_03.txt",
                 "origin": "This log originates from a TSP with AddCircuit constraint. It only has a single, but expensive, constraint.",
             },
             {
-                "file": "example_logs/98_04.txt",
+                "file": "cpsat_log_parser/example_logs/98_04.txt",
                 "origin": "This log originates from a Multi-Knapsack problem.",
             },
             {
-                "file": "example_logs/98_05.txt",
+                "file": "cpsat_log_parser/example_logs/98_05.txt",
                 "origin": "This log originates from a Packing problem.",
             },
             {
-                "file": "example_logs/98_06.txt",
+                "file": "cpsat_log_parser/example_logs/98_06.txt",
                 "origin": "This log originates from a Packing problem.",
             },
             {
-                "file": "example_logs/98_07.txt",
+                "file": "cpsat_log_parser/example_logs/98_07.txt",
                 "origin": "This log originates from a Knapsack problem run on an old Macbook. It spends most of the time in presolve.",
             },
             {
-                "file": "example_logs/98_08.txt",
+                "file": "cpsat_log_parser/example_logs/98_08.txt",
                 "origin": "An example from an iteration of SampLNS",
             },
             {
-                "file": "example_logs/97_01.txt",
+                "file": "cpsat_log_parser/example_logs/97_01.txt",
                 "origin": "This was an example log flying around on my computer for teaching purposes.",
             },
         ]
@@ -76,7 +76,11 @@ def input_log():
         for i in range(0, len(examples), row_length):
             cols = st.columns(min(len(examples) - i, row_length))
             for j, example in enumerate(examples[i : i + row_length]):
-                if cols[j].button(f"Example {i+j+1}", help=example.get("origin", None), use_container_width=True):
+                if cols[j].button(
+                    f"Example {i+j+1}",
+                    help=example.get("origin", None),
+                    use_container_width=True,
+                ):
                     with open(example["file"]) as f:
                         data = f.read()
                         save_to_history = False

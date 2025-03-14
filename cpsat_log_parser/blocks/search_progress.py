@@ -38,6 +38,7 @@ import re
 import typing
 from typing import Optional
 from .log_block import LogBlock
+import pandas as pd
 
 
 def parse_time(time: str):
@@ -251,6 +252,7 @@ def apply_ortools911_workaround(lines: typing.List[str]) -> typing.List[str]:
 
     return lines  # Return original lines if no modifications are made
 
+
 class SearchProgressBlockBase(LogBlock):
     def __init__(self, lines: typing.List[str], check: bool = True) -> None:
         lines = [line.strip() for line in lines if line.strip()]
@@ -267,7 +269,7 @@ class SearchProgressBlockBase(LogBlock):
         return lines[0].strip().lower().startswith("Starting search".lower())
 
     def _parse_events(
-            self,
+        self,
     ) -> typing.List[typing.Union[BoundEvent, ObjEvent, ModelEvent]]:
         """
         Parse the log file into a list of BoundEvent and ObjEvent.
@@ -287,14 +289,60 @@ class SearchProgressBlockBase(LogBlock):
 
     def get_presolve_time(self) -> float:
         if m := re.match(
-                r"Starting [Ss]earch at (?P<time>\d+\.\d+s) with \d+ workers.",
-                self.lines[0],
+            r"Starting [Ss]earch at (?P<time>\d+\.\d+s) with \d+ workers.",
+            self.lines[0],
         ):
             return parse_time(m["time"])
         raise ValueError(f"Could not parse presolve time from '{self.lines[0]}'")
 
     def get_title(self) -> str:
         return "Search progress:"
+
+    def get_table(self):
+        """
+        Builds a pandas DataFrame with the search progress.
+        It assumes events are sorted by time.
+        It fills with the previous result when no new information is available.
+        The return DataFrame has the following columns:
+        [the names of columns match the ones in the orloge library,
+        this may not be very relevant to cp-sat]
+        - Time: The time of the event.
+        - CutsBestBound: The best bound found at the time.
+        - BestInteger: The best integer found at the time.
+        - Gap: The gap between the best bound and the best integer.
+        - NumVars: The number of variables before the event.
+        - RemVars: The number of remaining variables after the event.
+        - NumCons: The number of constraints before the event.
+        - RemCons: The number of remaining constraints after the event.
+        """
+
+        events = self._parse_events()
+        gap = obj = bound = None
+        cons = new_cons = var = new_var = None
+        my_table = []
+        for e in events:
+            if not isinstance(e, ModelEvent):
+                bound = e.bound
+                obj = e.obj
+                gap = e.get_gap()
+            else:
+                var = e.vars
+                new_var = e.vars_remaining
+                cons = e.constr
+                new_cons = e.constr_remaining
+            my_table.append((e.time, bound, obj, gap, var, new_var, cons, new_cons))
+        col_names = [
+            "Time",
+            "CutsBestBound",
+            "BestInteger",
+            "Gap",
+            "NumVars",
+            "RemVars",
+            "NumCons",
+            "RemCons",
+        ]
+
+        return pd.DataFrame.from_records(my_table, columns=col_names)
 
     def get_help(self) -> typing.Optional[str]:
         return """
@@ -315,9 +363,11 @@ class SearchProgressBlockBase(LogBlock):
     To fully grasp the nuances, zooming into the plot is necessary, especially since the initial values can be quite large. A thorough examination of which sections of the process converge quickest is crucial for a comprehensive understanding.
             """
 
+
 try:
     import plotly.graph_objects as go
 except ImportError:
+
     class SearchProgressBlock(SearchProgressBlockBase):
         def gap_as_plotly(self):
             raise ImportError("Please install plotly to use this feature.")
@@ -329,6 +379,7 @@ except ImportError:
             raise ImportError("Please install plotly to use this feature.")
 
 else:
+
     class SearchProgressBlock(SearchProgressBlockBase):
 
         def gap_as_plotly(self) -> typing.Optional[go.Figure]:
@@ -339,7 +390,9 @@ else:
             def is_valid_gap(gap):
                 return False if gap is None else bool(math.isfinite(gap))
 
-            gaps = [(e.time, e.get_gap()) for e in gap_events if is_valid_gap(e.get_gap())]
+            gaps = [
+                (e.time, e.get_gap()) for e in gap_events if is_valid_gap(e.get_gap())
+            ]
 
             fig = go.Figure()
             if not gap_events:
@@ -380,7 +433,9 @@ else:
                 xaxis_title="Time (s)",
                 yaxis_title="Gap (%)",
                 legend_title="Legend",
-                font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
+                font=dict(
+                    family="Courier New, monospace", size=18, color="RebeccaPurple"
+                ),
             )
             return fig
 
@@ -388,7 +443,9 @@ else:
             """
             Plot the model changes in percent over time.
             """
-            model_events = [e for e in self._parse_events() if isinstance(e, ModelEvent)]
+            model_events = [
+                e for e in self._parse_events() if isinstance(e, ModelEvent)
+            ]
             fig = go.Figure()
             if not model_events:
                 return None
@@ -423,7 +480,9 @@ else:
                 xaxis_title="Time (s)",
                 yaxis_title="Remaining (%)",
                 legend_title="Legend",
-                font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
+                font=dict(
+                    family="Courier New, monospace", size=18, color="RebeccaPurple"
+                ),
             )
             return fig
 
@@ -501,6 +560,8 @@ else:
                 xaxis_title="Time (s)",
                 yaxis_title="Objective",
                 legend_title="Legend",
-                font=dict(family="Courier New, monospace", size=18, color="RebeccaPurple"),
+                font=dict(
+                    family="Courier New, monospace", size=18, color="RebeccaPurple"
+                ),
             )
             return fig
